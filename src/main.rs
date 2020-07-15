@@ -1,11 +1,13 @@
-use nix::unistd::{fork, ForkResult};
+use std::io;
 
 fn main() {
-    match fork() {
-        Ok(ForkResult::Parent { child, ..}) => {
-            println!("Continuing execution in parent process, new child has pid: {}", child);
+    loop {
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(0) => break,
+            Ok(_) => println!("{}", input.trim()),
+            Err(_) => std::process::exit(1),
         }
-        Ok(ForkResult::Child) => println!("I'm a new child process"),
-        Err(_) => println!("Fork failed"),
     }
+    println!("Bye!");
 }
