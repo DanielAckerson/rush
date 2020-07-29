@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 nix = "0.17.0"
+unicode-segmentation = "1.6.0"
+lazy_static = "1.4.0"
