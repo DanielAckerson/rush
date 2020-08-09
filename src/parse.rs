@@ -2,7 +2,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use std::collections::HashMap;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     Path(String),
     Arg(String),
@@ -11,7 +11,6 @@ pub enum Token {
     Escape,
     DoubleQuote,
     SingleQuote,
-    EOL,
 }
 
 
@@ -23,7 +22,6 @@ impl Token {
             Escape => Ok(Text("\\".to_owned())),
             DoubleQuote => Ok(Text("\"".to_owned())),
             SingleQuote => Ok(Text("'".to_owned())),
-            _ => Err("couldn't convert to Token::Text".to_owned()),
         }
     }
 
@@ -35,14 +33,6 @@ impl Token {
         }
     }
 
-    pub fn to_arg(&self) -> Result<Token, String> {
-        use Token::*;
-        return match self {
-            Text(arg) | Path(arg) | Arg(arg) => Ok(Arg(arg.clone())),
-            _ => Err("couldn't convert to Token::Arg".to_owned()),
-        }
-    }
-
     pub fn unwrap(&self) -> String {
         use Token::*;
         return match self {
@@ -50,7 +40,6 @@ impl Token {
             SingleQuote => "\'".to_owned(),
             DoubleQuote => "\"".to_owned(),
             Escape => "\\".to_owned(),
-            _ => "".to_owned(),
         }
     }
 }
@@ -133,7 +122,7 @@ pub fn parse(expr: &str) -> Result<Vec<Token>, String> {
             Some(SingleQuote) => if let Text(text) = parse_single_quoted(&mut t_raw)? {
                 arg_text.push_str(&text);
             },
-            Some(Whitespace(text)) => if !arg_text.is_empty() {
+            Some(Whitespace(_)) => if !arg_text.is_empty() {
                 tokens.push(Arg(arg_text.clone()));
                 arg_text.clear();
             },
@@ -215,4 +204,47 @@ where
             x => return Err(format!("invalid token in double quote: {:?}", x)),
         }
     }
+}
+
+
+#[test]
+fn test_lexer() {
+    use Token::*;
+    assert_eq!(
+        lexer("echo \"This is a \'test\'. I repeat, a \\\"TEST\\\"\" \'See?\'"),
+        Some(vec![
+            Text("echo".to_owned()), Whitespace(" ".to_owned()),
+            DoubleQuote,
+                Text("This".to_owned()), Whitespace(" ".to_owned()),
+                Text("is".to_owned()), Whitespace(" ".to_owned()),
+                Text("a".to_owned()), Whitespace(" ".to_owned()),
+                SingleQuote,
+                    Text("test".to_owned()),
+                SingleQuote,
+                Text(".".to_owned()), Whitespace(" ".to_owned()),
+                Text("I".to_owned()), Whitespace(" ".to_owned()),
+                Text("repeat,".to_owned()), Whitespace(" ".to_owned()),
+                Text("a".to_owned()), Whitespace(" ".to_owned()),
+                Escape, DoubleQuote,
+                    Text("TEST".to_owned()),
+                Escape, DoubleQuote,
+            DoubleQuote,
+            Whitespace(" ".to_owned()),
+            SingleQuote,
+                Text("See?".to_owned()),
+            SingleQuote,
+    ]));
+}
+
+
+#[test]
+fn test_parser() {
+    use Token::*;
+    assert_eq!(
+        parse("echo \"This is a \'test\'. I repeat, a \\\"TEST\\\"\" \'See?\'"),
+        Ok(vec![
+            Path("echo".to_owned()),
+            Arg("This is a \'test\'. I repeat, a \"TEST\"".to_owned()),
+            Arg("See?".to_owned()),
+    ]));
 }
