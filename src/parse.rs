@@ -8,38 +8,20 @@ pub enum Token {
     Arg(String),
     Text(String),
     Whitespace(String),
-    Escape,
-    DoubleQuote,
-    SingleQuote,
+    Escape(String),
+    DoubleQuote(String),
+    SingleQuote(String),
 }
 
 
 impl Token {
-    pub fn to_text(&self) -> Result<Token, String> {
-        use Token::*;
-        return match self {
-            Text(text) | Whitespace(text) | Path(text) | Arg(text) => Ok(Text(text.clone())),
-            Escape => Ok(Text("\\".to_owned())),
-            DoubleQuote => Ok(Text("\"".to_owned())),
-            SingleQuote => Ok(Text("'".to_owned())),
-        }
-    }
-
-    pub fn to_path(&self) -> Result<Token, String> {
-        use Token::*;
-        return match self {
-            Text(path) | Path(path) | Arg(path) => Ok(Path(path.clone())),
-            _ => Err("couldn't convert to Token::Path".to_owned()),
-        }
-    }
-
     pub fn unwrap(&self) -> String {
         use Token::*;
         return match self {
-            Text(text) | Whitespace(text) | Path(text) | Arg(text) => text.clone(),
-            SingleQuote => "\'".to_owned(),
-            DoubleQuote => "\"".to_owned(),
-            Escape => "\\".to_owned(),
+            Text(text) 
+                | Whitespace(text) | Path(text) | Arg(text) 
+                | SingleQuote(text) | DoubleQuote(text) | Escape(text)
+                => text.clone(),
         }
     }
 }
@@ -49,9 +31,9 @@ lazy_static! {
     static ref LEXICON: HashMap<&'static str, Token> = {
         use Token::*;
         let mut m = HashMap::new();
-        m.insert("\"", DoubleQuote);
-        m.insert("\'", SingleQuote);
-        m.insert("\\", Escape);
+        m.insert("\"", DoubleQuote("\"".to_owned()));
+        m.insert("\'", SingleQuote("\'".to_owned()));
+        m.insert("\\", Escape("\\".to_owned()));
         m.insert(" ",  Whitespace(" ".to_owned()));
         m.insert("\t", Whitespace("\t".to_owned()));
         m.insert("\n", Whitespace("\n".to_owned()));
@@ -68,30 +50,31 @@ pub fn lexer(expr: &str) -> Option<Vec<Token>> {
     let mut start = UnicodeSegmentation::grapheme_indices(expr, true);
     let mut cur = start.clone();
 
-    loop {
-        if let Some((i_cur, g_cur)) = cur.next() {
-            if let Some(t) = LEXICON.get(g_cur) {
-                let (i_start, _) = start
-                    .next()
-                    .expect("lexer: start iterator had no next value");
+    while let Some((i_cur, g_cur)) = cur.next() {
+        if let Some(token) = LEXICON.get(g_cur) {
+            let (i_start, _) = start
+                .next()
+                .expect("lexer: start iterator had no next value");
 
-                let text = expr[i_start..i_cur].to_owned();
+            let text = expr[i_start..i_cur].to_owned();
 
-                if !text.is_empty() {
-                    tokens.push(Text(text));
-                }
-
-                tokens.push(t.clone());
-                start = cur.clone();
+            if !text.is_empty() {
+                tokens.push(Text(text));
             }
-        } else if let Some((i, _)) = start.next() {
-            tokens.push(Text(expr[i..].to_owned()));
-            return Some(tokens);
-        } else if !tokens.is_empty() {
-            return Some(tokens);
-        } else {
-            return None;
+
+            tokens.push(token.clone());
+            start = cur.clone();
         }
+    }
+
+    if let Some((i, _)) = start.next() {
+        tokens.push(Text(expr[i..].to_owned()));
+    }
+
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens)
     }
 }
 
@@ -103,44 +86,51 @@ pub fn lexer(expr: &str) -> Option<Vec<Token>> {
 
 pub fn parse(expr: &str) -> Result<Vec<Token>, String> {
     use Token::*;
+
     let mut tokens: Vec<Token> = Vec::new();
+    let mut arg_text = String::new();
     let tokens_raw = lexer(expr).ok_or("no tokens")?; // TODO: use better name than raw
     let mut t_raw = tokens_raw.into_iter();
 
-    // assume token is Text
     if let Some(token) = t_raw.next() {
-        tokens.push(token.to_path()?.clone());
-    }
-
-    let mut arg_text = String::new();
-    loop {
-        match t_raw.next() {
-            Some(Text(text)) => arg_text.push_str(&text),
-            Some(DoubleQuote) => if let Text(text) = parse_double_quoted(&mut t_raw)? {
-                arg_text.push_str(&text);
-            },
-            Some(SingleQuote) => if let Text(text) = parse_single_quoted(&mut t_raw)? {
-                arg_text.push_str(&text);
-            },
-            Some(Whitespace(_)) => if !arg_text.is_empty() {
-                tokens.push(Arg(arg_text.clone()));
-                arg_text.clear();
-            },
-            None => {
-                if !arg_text.is_empty() {
-                    tokens.push(Arg(arg_text.clone()));
-                    arg_text.clear();
-                }
-                break;
-            },
-            _ => {},
+        match token {
+            Text(text) => tokens.push(Path(text)),
+            _ => return Err("parser error: first token isn't Text".to_owned()),
         }
     }
 
-    if !tokens.is_empty() {
-        Ok(tokens)
+    while let Some(token) = t_raw.next() {
+        match token {
+            Text(text) => arg_text.push_str(&text),
+            Escape(_) => {
+                let token = parse_escaped(&mut t_raw)?;
+                arg_text.push_str(&token.unwrap());
+            },
+            DoubleQuote(_) => {
+                let token = parse_double_quoted(&mut t_raw)?;
+                arg_text.push_str(&token.unwrap());
+            },
+            SingleQuote(_) => {
+                let token = parse_single_quoted(&mut t_raw)?;
+                arg_text.push_str(&token.unwrap());
+            },
+            Whitespace(_) => if !arg_text.is_empty() {
+                tokens.push(Arg(arg_text.clone()));
+                arg_text.clear();
+            },
+            _ => return Err("parser error: unexpected token".to_owned()),
+        }
+    }
+
+    if !arg_text.is_empty() {
+        tokens.push(Arg(arg_text.clone()));
+        arg_text.clear();
+    }
+
+    if tokens.is_empty() {
+        Err("parser error: no tokens".to_owned())
     } else {
-        Err("unknown parser error".to_owned())
+        Ok(tokens)
     }
 }
 
@@ -153,9 +143,9 @@ where
     use Token::*;
     let token = tokens.next().ok_or("unexpected EOL")?;
     match token {
-        Whitespace(ref c) if c == "\n" => token.to_text(),
-        Whitespace(_) => token.to_text(),
-        Escape | DoubleQuote | SingleQuote => token.to_text(),
+        Whitespace(text)
+            | Escape(text) | DoubleQuote(text) | SingleQuote(text)
+            => Ok(Text(text)),
         x => Err(format!("unexpected token {:?}", x)),
     }
 }
@@ -167,20 +157,21 @@ where
     I: Iterator<Item = Token>
 {
     use Token::*;
+
     let mut quoted_text = String::new();
-    loop {
-        let token = tokens.next().ok_or("no matching double quote")?;
+    while let Some(token) = tokens.next() {
         match token {
-            Text(text) | Whitespace(text) => quoted_text.push_str(&text),
-            Escape => match parse_escaped(tokens)? {
-                Text(escaped) => quoted_text.push_str(&escaped),
-                _ => return Err("parse_escaped didn't return Text".to_owned()),
+            Text(text) | Whitespace(text) | SingleQuote(text)
+                => quoted_text.push_str(&text),
+            Escape(_) => {
+                let token = parse_escaped(tokens)?;
+                quoted_text.push_str(&token.unwrap());
             },
-            SingleQuote => quoted_text.push('\''),
-            DoubleQuote => return Ok(Text(quoted_text)),
+            DoubleQuote(_) => return Ok(Text(quoted_text)),
             x => return Err(format!("invalid token in double quote: {:?}", x)),
         }
     }
+    Err("no matching double quote".to_owned())
 }
 
 
@@ -190,20 +181,21 @@ where
     I: Iterator<Item = Token>
 {
     use Token::*;
+
     let mut quoted_text = String::new();
-    loop {
-        let token = tokens.next().ok_or("no matching single quote")?;
+    while let Some(token) = tokens.next() {
         match token {
-            Text(text) | Whitespace(text) => quoted_text.push_str(&text),
-            Escape => match parse_escaped(tokens)? {
-                Text(escaped) => quoted_text.push_str(&escaped),
-                _ => return Err("parse_escaped didn't return Text".to_owned()),
+            Text(text) | Whitespace(text) | DoubleQuote(text)
+                => quoted_text.push_str(&text),
+            Escape(_) => {
+                let token = parse_escaped(tokens)?;
+                quoted_text.push_str(&token.unwrap());
             },
-            DoubleQuote => quoted_text.push('\"'),
-            SingleQuote => return Ok(Text(quoted_text)),
+            SingleQuote(_) => return Ok(Text(quoted_text)),
             x => return Err(format!("invalid token in double quote: {:?}", x)),
         }
     }
+    Err("no matching single quote".to_owned())
 }
 
 
@@ -214,25 +206,25 @@ fn test_lexer() {
         lexer("echo \"This is a \'test\'. I repeat, a \\\"TEST\\\"\" \'See?\'"),
         Some(vec![
             Text("echo".to_owned()), Whitespace(" ".to_owned()),
-            DoubleQuote,
+            DoubleQuote("\"".to_owned()),
                 Text("This".to_owned()), Whitespace(" ".to_owned()),
                 Text("is".to_owned()), Whitespace(" ".to_owned()),
                 Text("a".to_owned()), Whitespace(" ".to_owned()),
-                SingleQuote,
+                SingleQuote("\'".to_owned()),
                     Text("test".to_owned()),
-                SingleQuote,
+                SingleQuote("\'".to_owned()),
                 Text(".".to_owned()), Whitespace(" ".to_owned()),
                 Text("I".to_owned()), Whitespace(" ".to_owned()),
                 Text("repeat,".to_owned()), Whitespace(" ".to_owned()),
                 Text("a".to_owned()), Whitespace(" ".to_owned()),
-                Escape, DoubleQuote,
+                Escape("\\".to_owned()), DoubleQuote("\"".to_owned()),
                     Text("TEST".to_owned()),
-                Escape, DoubleQuote,
-            DoubleQuote,
+                Escape("\\".to_owned()), DoubleQuote("\"".to_owned()),
+            DoubleQuote("\"".to_owned()),
             Whitespace(" ".to_owned()),
-            SingleQuote,
+            SingleQuote("\'".to_owned()),
                 Text("See?".to_owned()),
-            SingleQuote,
+            SingleQuote("\'".to_owned()),
     ]));
 }
 
