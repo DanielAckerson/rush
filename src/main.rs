@@ -36,7 +36,6 @@ fn eval_input(input: &str) -> Option<(String, Vec<String>)> {
                 .map(|x| x.unwrap())
                 .collect();
             let path = expr[0].unwrap();
-
             Some((path, args))
         },
         Err(msg) => {
@@ -53,7 +52,7 @@ fn exec_input(path: &str, args: Vec<&str>) {
             println!("process exited with code {}", exit_status.code().unwrap_or(0));
         },
         Err(e) => {
-            println!("{}", e);
+            eprintln!("{}", e);
         },
     }
 }
