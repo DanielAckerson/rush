@@ -2,9 +2,25 @@ use pom::parser::*;
 
 use std::collections::HashMap;
 
+pub trait Operation {
+    fn exec() -> Result<usize, String>;
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Process {
+    pub path: String,
+    pub args: Vec<String>,
+}
+
+impl Operation for Process {
+    fn exec() -> Result<usize, String> {
+        Err("unimplemented".to_string())
+    }
+}
+
 // until more complex grammar is supported, only return (path, args)
-pub fn parse(input: &str, vars: &HashMap<String, String>) -> Result<(String, Vec<String>), String> {
-    program(&vars)
+pub fn parse(input: &str, vars: &HashMap<String, String>) -> Result<Process, String> {
+    process(&vars)
         .parse(input.as_bytes())
         .map_err(|_| "parse error".to_string())
 }
@@ -65,20 +81,24 @@ fn string<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
         .repeat(1..)
         .convert(String::from_utf8);
 
-    let partial_string = |x: &'static [u8]| expand_var(dict) | chars_as_string(x);
+    let expandable_chunk = |x: &'static [u8]| expand_var(dict) | chars_as_string(x);
 
-    let string = |x: &'static [u8]| partial_string(x)
+    let quoted_content = chars_as_string(b"\'")
         .repeat(1..)
         .map(|strings| strings.concat());
 
-    let quoted = sym(b'\'') * string(b"\'") - sym(b'\'');
-    let double_quoted = sym(b'\"') * string(b"$\"") - sym(b'\"');
+    let double_quoted_content = expandable_chunk(b"$\"")
+        .repeat(1..)
+        .map(|strings| strings.concat());
+
+    let quoted = sym(b'\'') * quoted_content - sym(b'\'');
+    let double_quoted = sym(b'\"') * double_quoted_content - sym(b'\"');
 
     quoted | double_quoted
 }
 
 
-fn program<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, (String, Vec<String>)> {
+fn process<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, Process> {
     let token = || text(dict) | string(dict);
 
     let tokens = || token()
@@ -92,7 +112,7 @@ fn program<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, (String, Vec
     let path = whitespace() * tokens();
     let arg = spaces * tokens();
 
-    path + arg.repeat(0..)
+    (path + arg.repeat(0..)).map(|(x, y)| Process {path: x, args: y})
 }
 
 
@@ -102,11 +122,11 @@ fn parse_test() {
     let vars: HashMap<String, String> = HashMap::new();
 
     assert_eq!(
-        Ok((
-            "echo".to_string(),
-            vec![
+        Ok(Process {
+            path: "echo".to_string(),
+            args: vec![
                 r#"This is a 'test'. I repeat, a "TEST""#.to_string(),
                 "See?".to_string(),
-                "Check it out!".to_string()])),
+                "Check it out!".to_string()]}),
         parse(input, &vars))
 }

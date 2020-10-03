@@ -15,13 +15,15 @@ fn main() {
     loop {
         print!("$ ");
         io::stdout().flush().unwrap();
+
         match io::stdin().read_line(&mut input) {
             Ok(0) => break,
-            Ok(_) => if let Ok((path, args)) = parse::parse(&input, &env_vars) {
-                exec_input(&path, args.iter().map(AsRef::as_ref).collect());
+            Ok(_) => if let Ok(process) = parse::parse(&input, &env_vars) {
+                exec_input(&process.path, process.args.iter().map(AsRef::as_ref).collect());
             },
             Err(_) => process::exit(1),
         }
+
         input.clear();
     }
     println!("Bye!");
