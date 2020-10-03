@@ -18,7 +18,19 @@ impl Operation for Process {
     }
 }
 
-// until more complex grammar is supported, only return (path, args)
+#[derive(Debug, PartialEq)]
+pub struct Pipe {
+    pub producer: Process,
+    pub consumer: Process,
+}
+
+impl Operation for Pipe {
+    fn exec() -> Result<usize, String> {
+        Err("unimplemented".to_string())
+    }
+}
+
+
 pub fn parse(input: &str, vars: &HashMap<String, String>) -> Result<Process, String> {
     process(&vars)
         .parse(input.as_bytes())
@@ -60,7 +72,7 @@ fn expand_var<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
 
 
 fn text<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
-    let text_char = escape_sequence() | none_of(b" \t\r\n$\'\"");
+    let text_char = escape_sequence() | none_of(b" |\t\r\n$\'\"");
 
     let chars_as_string = text_char
         .repeat(1..)
@@ -116,6 +128,41 @@ fn process<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, Process> {
 }
 
 
+fn pipe<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, Pipe> {
+    let spaces = || one_of(b" \t")
+        .repeat(0..)
+        .discard();
+
+    let pair = process(dict) - spaces() - sym(b'|') - spaces() + process(dict);
+    pair.map(|(x, y)| Pipe {producer: x, consumer: y})
+}
+
+#[test]
+fn pipe_test() {
+    let input = r#"echo hello my "name is | daniel" | sed 's/daniel/dan/'"#;
+    let vars: HashMap<String, String> = HashMap::new();
+
+    assert_eq!(
+        Ok(Pipe {
+            producer: Process {
+                path: "echo".to_string(),
+                args: vec![
+                    "hello".to_string(),
+                    "my".to_string(),
+                    "name is | daniel".to_string(),
+                ],
+            },
+            consumer: Process {
+                path: "sed".to_string(),
+                args: vec![
+                    "s/daniel/dan/".to_string(),
+                ],
+            },
+        }),
+        pipe(&vars).parse(input.as_bytes()));
+}
+
+
 #[test]
 fn parse_test() {
     let input = r#"echo "This is a 'test'. I repeat, a \"TEST\"" 'See?' Check\ it\ out!"#;
@@ -128,5 +175,5 @@ fn parse_test() {
                 r#"This is a 'test'. I repeat, a "TEST""#.to_string(),
                 "See?".to_string(),
                 "Check it out!".to_string()]}),
-        parse(input, &vars))
+        parse(input, &vars));
 }
