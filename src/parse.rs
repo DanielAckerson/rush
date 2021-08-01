@@ -32,7 +32,7 @@ impl Operation for Pipe {
 
 
 pub fn parse(input: &str, vars: &HashMap<String, String>) -> Result<Process, String> {
-    process(&vars)
+    process(vars)
         .parse(input.as_bytes())
         .map_err(|_| "parse error".to_string())
 }
@@ -57,7 +57,7 @@ fn escape_sequence<'a>() -> Parser<'a, u8, u8> {
 }
 
 
-fn expand_var<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
+fn expand_var(dict: &HashMap<String, String>) -> Parser<u8, String> {
     let identifier = var_char()
         .repeat(1..)
         .convert(String::from_utf8);
@@ -71,7 +71,7 @@ fn expand_var<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
 }
 
 
-fn text<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
+fn text(dict: &HashMap<String, String>) -> Parser<u8, String> {
     let text_char = escape_sequence() | none_of(b" |\t\r\n$\'\"");
 
     let chars_as_string = text_char
@@ -86,7 +86,7 @@ fn text<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
 }
 
 
-fn string<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
+fn string(dict: &HashMap<String, String>) -> Parser<u8, String> {
     let string_char_exclude = |x: &'static [u8]| escape_sequence() | none_of(x);
 
     let chars_as_string = |x: &'static [u8]| string_char_exclude(x)
@@ -110,7 +110,7 @@ fn string<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, String> {
 }
 
 
-fn process<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, Process> {
+fn process(dict: &HashMap<String, String>) -> Parser<u8, Process> {
     let token = || text(dict) | string(dict);
 
     let tokens = || token()
@@ -128,7 +128,7 @@ fn process<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, Process> {
 }
 
 
-fn pipe<'a>(dict: &'a HashMap<String, String>) -> Parser<'a, u8, Pipe> {
+fn pipe(dict: &HashMap<String, String>) -> Parser<u8, Pipe> {
     let spaces = || one_of(b" \t")
         .repeat(0..)
         .discard();
